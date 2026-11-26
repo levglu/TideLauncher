@@ -86,7 +86,7 @@ sudo pacman -S python pyside6 libarchive ffmpeg unrar
 ### Запуск
 
 ```bash
-git clone https://github.com/<ваш-аккаунт>/TideLauncher.git
+git clone https://github.com/levglu/TideLauncher.git
 cd TideLauncher
 python main.py                # на весь экран
 python main.py --windowed     # в окне

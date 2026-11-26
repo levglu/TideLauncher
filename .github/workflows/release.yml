@@ -64,9 +64,26 @@ jobs:
           QT_FORCE_STDERR_LOGGING: "1"
         run: |
           exe=dist/Tide/Tide; [ "$RUNNER_OS" = "Windows" ] && exe=dist/Tide/Tide.exe
-          "$exe" --windowed --skip-intro --shot "$PWD/smoke.png:4000" 2>&1 | tee smoke.log || true
-          if grep -iE "qml.*(error|is not installed|failed)|Traceback" smoke.log; then echo "Ошибки при запуске"; exit 1; fi
-          test -s smoke.png && echo "Интерфейс загрузился, снимок экрана сделан"
+          set +e
+          "$exe" --windowed --skip-intro --shot "$PWD/smoke.png:4000" > smoke.log 2>&1
+          code=$?
+          set -e
+          cat smoke.log
+          # настоящие ошибки: интерфейс не загрузился, нет модуля QML, исключение Python
+          if grep -E "QQmlApplicationEngine failed|is not installed|module \".*\" .*not|Traceback" smoke.log; then
+            echo "::error::Ошибки при загрузке интерфейса"; exit 1
+          fi
+          if [ "$code" != "0" ]; then echo "::error::Программа завершилась с кодом $code"; exit 1; fi
+          test -s smoke.png || { echo "::error::Снимок экрана не сделан"; exit 1; }
+          echo "Интерфейс загрузился, снимок экрана сделан"
+
+      - name: Снимок экрана из проверки
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: smoke-${{ matrix.name }}
+          path: smoke.png
+          if-no-files-found: ignore
 
       - name: Архив
         shell: bash

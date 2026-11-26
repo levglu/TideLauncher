@@ -279,12 +279,22 @@ Window {
         "system-switch-user": "users", "system-log-out": "logout", "view-list-icons": "apps",
         "dialog-information": "info", "dialog-error": "info", "edit-delete": "trash", "media-playback-start": "play",
         "list-add": "plus", "edit-rename": "pencil", "edit-undo": "undo", "go-home": "home", "window-close": "close",
-        "store": "bag", "download": "download", "folder": "folder", "folder-new": "folder", "input-gaming": "gamepad"
+        "store": "bag", "download": "download", "folder": "folder", "folder-new": "folder", "input-gaming": "gamepad",
+        "system-search": "search", "document-open": "file", "package-x-generic": "package"
     })
     function drawIco(c, k) {
         var P = Math.PI
         c.beginPath()
         switch (k) {
+        case "search":   // лупа
+            c.arc(10.5, 10.5, 5.5, 0, 2 * P); c.moveTo(14.6, 14.6); c.lineTo(19, 19); c.stroke(); return
+        case "file":     // лист с загнутым углом
+            c.moveTo(14, 4); c.lineTo(7, 4); c.lineTo(7, 20); c.lineTo(17, 20); c.lineTo(17, 7); c.lineTo(14, 4)
+            c.lineTo(14, 7); c.lineTo(17, 7); c.moveTo(9.5, 12); c.lineTo(14.5, 12); c.moveTo(9.5, 15.5); c.lineTo(14.5, 15.5)
+            c.stroke(); return
+        case "package":  // коробка
+            c.moveTo(12, 3.5); c.lineTo(19.5, 7.5); c.lineTo(19.5, 16.5); c.lineTo(12, 20.5); c.lineTo(4.5, 16.5); c.lineTo(4.5, 7.5); c.closePath()
+            c.moveTo(4.5, 7.5); c.lineTo(12, 11.5); c.lineTo(19.5, 7.5); c.moveTo(12, 11.5); c.lineTo(12, 20.5); c.stroke(); return
         case "bell":
             c.moveTo(5.5, 17); c.lineTo(7, 15); c.lineTo(7, 10.5)
             c.bezierCurveTo(7, 7.3, 9.2, 5, 12, 5); c.bezierCurveTo(14.8, 5, 17, 7.3, 17, 10.5)

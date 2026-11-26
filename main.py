@@ -21,8 +21,11 @@ from PySide6.QtCore import QObject, Property, QSize, QTimer, QUrl, Signal, Slot
 from PySide6.QtGui import QColor, QFont, QFontDatabase, QGuiApplication, QIcon, QPixmap
 from PySide6.QtQml import QQmlApplicationEngine
 from PySide6.QtQuick import QQuickImageProvider
+import PySide6.QtMultimedia  # noqa: F401 — чтобы сборщик включил QtMultimedia (звук, MediaPlayer в QML)
 
-APP_DIR = Path(__file__).resolve().parent
+IS_WIN = sys.platform.startswith("win")
+# в собранной версии (PyInstaller) файлы интерфейса лежат в sys._MEIPASS
+APP_DIR = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent))
 CFG_DIR = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config")) / "tide-launcher"
 CACHE_DIR = Path(os.environ.get("XDG_CACHE_HOME", Path.home() / ".cache")) / "tide-launcher"
 STATE_FILE = CFG_DIR / "state.json"
@@ -184,6 +187,10 @@ def find_shadps4(pref=""):
              str(Path.home() / "Загрузки/Shadps4-sdl.AppImage"),
              str(Path.home() / "Applications/Shadps4-sdl.AppImage"),
              shutil.which("shadps4") or "", shutil.which("shadPS4") or ""]
+    if IS_WIN:
+        for d in (Path.home() / "Documents", Path.home() / "Downloads", Path.home() / "Desktop",
+                  Path(os.environ.get("ProgramFiles", "C:/Program Files")) / "shadPS4", Path.home() / "shadPS4"):
+            cands += sorted(glob.glob(str(d / "shadPS4*.exe"))) + sorted(glob.glob(str(d / "*" / "shadPS4*.exe")))
     for c in cands:
         if c and os.path.isfile(os.path.expanduser(c)) and os.access(os.path.expanduser(c), os.X_OK):
             return os.path.expanduser(c)
@@ -370,6 +377,10 @@ ARCHIVE_EXT = (".zip", ".7z", ".rar", ".tar", ".tar.gz", ".tgz", ".tar.xz", ".tx
 STORE_CACHE = CACHE_DIR / "store"
 
 
+# bsdtar: в Linux — пакет libarchive, в Windows 10/11 встроенный tar.exe — это тоже bsdtar
+TAR = shutil.which("bsdtar") or shutil.which("tar") or "bsdtar"
+
+
 def _is_archive(name):
     n = name.lower()
     return any(n.endswith(e) for e in ARCHIVE_EXT)
@@ -377,7 +388,7 @@ def _is_archive(name):
 
 def archive_list(path):
     try:
-        out = subprocess.run(["bsdtar", "-tf", str(path)], capture_output=True, text=True, timeout=60).stdout
+        out = subprocess.run([TAR, "-tf", str(path)], capture_output=True, text=True, timeout=60).stdout
         return [l for l in out.splitlines() if l]
     except Exception:
         return []
@@ -400,7 +411,7 @@ def archive_game_info(path):
         if not target.exists() and (root + member) in names:
             try:
                 with open(target, "wb") as f:
-                    subprocess.run(["bsdtar", "-xOf", str(path), root + member], stdout=f, timeout=60)
+                    subprocess.run([TAR, "-xOf", str(path), root + member], stdout=f, timeout=60)
             except Exception:
                 pass
     info = read_sfo(d / "param.sfo")
@@ -847,8 +858,55 @@ class Gamepad(threading.Thread):
         except OSError:
             return -1  # нет доступа — не отбрасываем, решим по имени
 
+    # XInput (Windows): Xbox и совместимые; DualSense/DualShock — через Steam Input или DS4Windows
+    XI_BUTTONS = {0x1000: "accept", 0x2000: "back", 0x8000: "triangle", 0x4000: "square", 0x0100: "tabprev",
+                  0x0200: "tabnext", 0x0020: "share", 0x0010: "options", 0x0400: "ps"}
+    XI_DIRS = {0x0001: "up", 0x0002: "down", 0x0004: "left", 0x0008: "right"}
+    _xi = None
+
+    @classmethod
+    def _xinput(cls):
+        """→ (функция чтения состояния, тип структуры) или None."""
+        if cls._xi is not None:
+            return cls._xi or None
+        import ctypes
+        from ctypes import wintypes
+
+        class GP(ctypes.Structure):
+            _fields_ = [("wButtons", wintypes.WORD), ("bLeftTrigger", ctypes.c_ubyte), ("bRightTrigger", ctypes.c_ubyte),
+                        ("sThumbLX", ctypes.c_short), ("sThumbLY", ctypes.c_short),
+                        ("sThumbRX", ctypes.c_short), ("sThumbRY", ctypes.c_short)]
+
+        class ST(ctypes.Structure):
+            _fields_ = [("dwPacketNumber", wintypes.DWORD), ("Gamepad", GP)]
+        for name in ("xinput1_4", "xinput1_3", "xinput9_1_0"):
+            try:
+                dll = ctypes.WinDLL(name)
+            except OSError:
+                continue
+            try:
+                fn = dll[100]  # XInputGetStateEx — с кнопкой Guide
+            except (AttributeError, OSError):
+                fn = dll.XInputGetState
+            cls._xi = (fn, ST)
+            return cls._xi
+        cls._xi = False
+        return None
+
+    @classmethod
+    def _xi_state(cls, i):
+        import ctypes
+        xi = cls._xinput()
+        if not xi:
+            return None
+        fn, ST = xi
+        st = ST()
+        return st if fn(i, ctypes.byref(st)) == 0 else None
+
     @classmethod
     def controllers(cls):
+        if IS_WIN:
+            return [(f"xinput{i}", f"Геймпад {i + 1} (XInput)") for i in range(4) if cls._xi_state(i)]
         out = []
         for d in sorted(glob.glob("/dev/input/js*")):
             n = cls.name_of(d)
@@ -868,7 +926,46 @@ class Gamepad(threading.Thread):
             return cls.BUTTONS_XBOX
         return cls.BUTTONS  # DualSense, DualSense Edge, DualShock 4 (hid-playstation) и прочие
 
+    def _run_xinput(self):
+        if not self._xinput():
+            return
+        prev = [0] * 4
+        held, held_since, last_rep = None, 0.0, 0.0
+        while True:
+            time.sleep(0.016)
+            now = time.monotonic()
+            for i in range(4):
+                st = self._xi_state(i)
+                if not st:
+                    prev[i] = 0
+                    continue
+                g = st.Gamepad
+                b = g.wButtons
+                # левый стик → как крестовина
+                if g.sThumbLY > 16000: b |= 0x0001
+                if g.sThumbLY < -16000: b |= 0x0002
+                if g.sThumbLX < -16000: b |= 0x0004
+                if g.sThumbLX > 16000: b |= 0x0008
+                pressed = b & ~prev[i]
+                released = prev[i] & ~b
+                prev[i] = b
+                for bit, name in self.XI_BUTTONS.items():
+                    if pressed & bit:
+                        self.raw(f"Кнопка {bit:#06x}")
+                        self.emit(name)
+                for bit, name in self.XI_DIRS.items():
+                    if pressed & bit:
+                        held, held_since, last_rep = name, now, now
+                        self.emit(name)
+                    elif released & bit and held == name:
+                        held = None
+            if held and now - held_since > 0.38 and now - last_rep > 0.11:
+                self.emit(held)
+                last_rep = now
+
     def run(self):
+        if IS_WIN:
+            return self._run_xinput()
         open_pads = {}  # dev → [file, name, mapping, axes]
         held, held_since, last_rep = None, 0.0, 0.0
         next_scan = 0.0
@@ -2038,7 +2135,7 @@ class Backend(QObject):
                         raise RuntimeError("Ошибка распаковки RAR")
                 else:
                     total = max(1, len(archive_list(src)))
-                    p = subprocess.Popen(["bsdtar", "-xvf", str(src), "-C", str(stage)],
+                    p = subprocess.Popen([TAR, "-xvf", str(src), "-C", str(stage)],
                                          stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True)
                     n = 0
                     for _ in p.stderr:
@@ -2155,9 +2252,27 @@ class Backend(QObject):
 
     @Slot(result="QVariantList")
     def sysinfo(self):
-        u = os.uname()
+        import platform
+        u = platform.uname()
         cpu = ram = "—"
-        try:
+        up = 0
+        if IS_WIN:
+            import ctypes
+            cpu = platform.processor() or "—"
+            try:
+                class MS(ctypes.Structure):
+                    _fields_ = [("len", ctypes.c_ulong), ("load", ctypes.c_ulong), ("total", ctypes.c_ulonglong),
+                                ("avail", ctypes.c_ulonglong), ("tp", ctypes.c_ulonglong), ("ap", ctypes.c_ulonglong),
+                                ("tv", ctypes.c_ulonglong), ("av", ctypes.c_ulonglong), ("ave", ctypes.c_ulonglong)]
+                ms = MS(); ms.len = ctypes.sizeof(MS)
+                ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(ms))
+                ram = f"{ms.total / 1073741824:.1f} ГБ"
+                ctypes.windll.kernel32.GetTickCount64.restype = ctypes.c_ulonglong
+                up = ctypes.windll.kernel32.GetTickCount64() / 1000
+            except Exception:
+                pass
+        else:
+          try:
             for line in open("/proc/cpuinfo"):
                 if line.startswith("model name"):
                     cpu = line.split(":", 1)[1].strip()
@@ -2167,10 +2282,10 @@ class Backend(QObject):
                     ram = f"{int(line.split()[1]) / 1048576:.1f} ГБ"
                     break
             up = float(open("/proc/uptime").read().split()[0])
-        except Exception:
+          except Exception:
             up = 0
         from PySide6 import __version__ as pyside_ver
-        return [["Имя устройства", u.nodename], ["Ядро", u.release], ["Процессор", cpu],
+        return [["Имя устройства", u.node], ["Система", f"{u.system} {u.release}"], ["Процессор", cpu],
                 ["Память", ram], ["Время работы", fmt_duration(up)],
                 ["Версия Tide", "1.0"], ["Qt / PySide", pyside_ver], ["Python", sys.version.split()[0]]]
 
@@ -2179,7 +2294,7 @@ class Backend(QObject):
     def _users(self):
         u = self._state.setdefault("users", [])
         if not u:
-            u.append({"name": os.environ.get("USER", "Игрок").capitalize(), "color": 0})
+            u.append({"name": (os.environ.get("USER") or os.environ.get("USERNAME") or "Игрок").capitalize(), "color": 0})
         return u
 
     @Slot(result="QVariantList")
@@ -2342,6 +2457,9 @@ class Backend(QObject):
     def power(self, action):
         cmds = {"suspend": ["systemctl", "suspend"], "reboot": ["systemctl", "reboot"],
                 "poweroff": ["systemctl", "poweroff"]}
+        if IS_WIN:
+            cmds = {"suspend": ["rundll32.exe", "powrprof.dll,SetSuspendState", "0,1,0"],
+                    "reboot": ["shutdown", "/r", "/t", "0"], "poweroff": ["shutdown", "/s", "/t", "0"]}
         if action == "quit":
             QGuiApplication.quit()
         elif action in cmds:
@@ -2429,6 +2547,8 @@ def main():
         if icon_file.is_file():
             app.setWindowIcon(QIcon(str(icon_file)))
             break
+    else:
+        app.setWindowIcon(QIcon(str(APP_DIR / "icons" / "tide.png")))
     if not QIcon.themeName():
         QIcon.setThemeName("breeze")
     QIcon.setFallbackThemeName("hicolor")

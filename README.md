@@ -66,7 +66,14 @@
 
 ---
 
-## 📦 Установка
+## ⬇️ Скачать
+
+Готовые сборки лежат в **[Releases](https://github.com/levglu/TideLauncher/releases/latest)**, Python и Qt устанавливать не нужно:
+
+- **Linux** (x86_64): `Tide-linux-x86_64.tar.gz` → распакуйте и запустите `Tide/Tide`;
+- **Windows 10/11** (x64, экспериментальная): `Tide-windows-x64.zip` → распакуйте и запустите `Tide\Tide.exe`.
+
+## 📦 Запуск из исходников
 
 ### Зависимости
 

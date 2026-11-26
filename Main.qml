@@ -819,6 +819,11 @@ Window {
                          icon: x.icon, act: "launch:" + x.id }
             })
         }
+        if (it.id === "__store") return [
+            { title: "Все игры магазина", sym: "store", act: "store:0" },
+            { title: "Из «Загрузок»: архивы и пакеты PKG", sym: "folder", act: "store:2" },
+            { title: "Добавить приложение с ПК", sym: "list-add", act: "store:4" }
+        ]
         if (it.id === "__lib") return [
             { title: "Игры — " + stats.games, sym: "applications-games", act: "lib:0" },
             { title: "Приложения — " + stats.apps, sym: "view-list-icons", act: "lib:1" },
@@ -2896,6 +2901,7 @@ Window {
             overlay = ""
             launchItem(target); return
         case "lib": openLibrary(+p[1]); return
+        case "store": openStore(); storeCat = +p[1]; storeIdx = 0; storeZone = storeCat === 4 || !storeModel.length ? "side" : "grid"; return
         case "info":
             menuTarget = it; infoData = backend.appInfo(it.id); overlay = "info"; play("open"); return
         case "togglegame":

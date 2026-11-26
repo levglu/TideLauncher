@@ -13,15 +13,16 @@
     <td><img src="docs/screenshots/home-func.png" alt="Верхний ряд функций"><br><sub>Верхний ряд функций</sub></td>
   </tr>
   <tr>
+    <td><img src="docs/screenshots/boot.png" alt="Заставка"><br><sub>Заставка</sub></td>
     <td><img src="docs/screenshots/store.png" alt="Магазин"><br><sub>Магазин</sub></td>
-    <td><img src="docs/screenshots/library.png" alt="Библиотека"><br><sub>Библиотека</sub></td>
   </tr>
   <tr>
-    <td colspan="2" align="center"><img src="docs/screenshots/trophies.png" alt="Достижения" width="50%"><br><sub>Достижения игры</sub></td>
+    <td><img src="docs/screenshots/trophies.png" alt="Достижения"><br><sub>Достижения</sub></td>
+    <td><img src="docs/screenshots/settings.png" alt="Настройки"><br><sub>Настройки</sub></td>
   </tr>
 </table>
 
-<sub>На скриншотах демо-игры с придуманными названиями и обложками.</sub>
+<sub>Скриншоты сделаны на чистой установке, без игр.</sub>
 
 ---
 

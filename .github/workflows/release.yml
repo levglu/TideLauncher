@@ -65,7 +65,7 @@ jobs:
         run: |
           exe=dist/Tide/Tide; [ "$RUNNER_OS" = "Windows" ] && exe=dist/Tide/Tide.exe
           set +e
-          "$exe" --windowed --skip-intro --shot "$PWD/smoke.png:4000" > smoke.log 2>&1
+          "$exe" --windowed --skip-intro --shot "smoke.png:4000" > smoke.log 2>&1
           code=$?
           set -e
           cat smoke.log
